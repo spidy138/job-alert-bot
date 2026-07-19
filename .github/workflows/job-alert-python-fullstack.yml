@@ -25,6 +25,6 @@ jobs:
         run: pip install requests beautifulsoup4
 
       - name: Search for jobs
+        run: python job_fetch.py --profile python-fullstack --location "${{ matrix.location }}"
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python job_fetch.py --profile python-fullstack --location "${{ matrix.location }}"

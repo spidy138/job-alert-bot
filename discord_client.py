@@ -2,24 +2,42 @@ import requests
 import logging
 from typing import List, Dict, Optional
 
-def format_job_embed(job: Dict) -> Dict:
-    """Format single job as Discord embed"""
-    desc = job["description"]
-    if len(desc) > 300:
-        desc = desc[:300] + "..."
+def format_job_embed(job: Dict) -> Optional[Dict]:
+    """Format single job as Discord embed with validation"""
+    try:
+        # Validate and sanitize required fields
+        title = str(job.get("title", "No Title"))[:200]
+        company = str(job.get("company", "Unknown"))[:100]
+        location = str(job.get("location", "Unknown"))[:100]
+        skill = str(job.get("skill", "general")).title()[:50]
+        posted = str(job.get("posted", "Recently"))[:50]
+        link = str(job.get("link", ""))[:2000]
+        description = str(job.get("description", title))
+        source = str(job.get("source", "Portal"))[:50]
 
-    embed = {
-        "title": job["title"][:200],
-        "description": f"**{desc}**\n\n**Posted:** {job['posted']}\n\n[Apply]({job['link']})",
-        "fields": [
-            {"name": "Company", "value": job["company"], "inline": True},
-            {"name": "Location", "value": job["location"], "inline": True},
-            {"name": "Skill Matched", "value": job["skill"].title(), "inline": True},
-        ],
-        "color": 5763719,
-        "footer": {"text": f"via {job.get('source', 'Portal')} • Posted {job['posted']}"},
-    }
-    return embed
+        # Truncate description
+        if len(description) > 300:
+            description = description[:300] + "..."
+
+        # Only add link if valid
+        desc_line = f"**{description}**\n\n**Posted:** {posted}"
+        if link and link.startswith("http"):
+            desc_line += f"\n\n[Apply]({link})"
+
+        embed = {
+            "title": title,
+            "description": desc_line,
+            "fields": [
+                {"name": "Company", "value": company or "Unknown", "inline": True},
+                {"name": "Location", "value": location or "Unknown", "inline": True},
+                {"name": "Skill", "value": skill or "General", "inline": True},
+            ],
+            "color": 5763719,
+            "footer": {"text": f"via {source}"},
+        }
+        return embed
+    except Exception as e:
+        return None
 
 class DiscordClient:
     """Send job notifications to Discord"""
@@ -55,7 +73,11 @@ class DiscordClient:
 
         # Add job embeds (max 10 per message)
         for job in jobs[:10]:
-            embeds.append(format_job_embed(job))
+            embed = format_job_embed(job)
+            if embed:
+                embeds.append(embed)
+            else:
+                self.logger.log(5, f"Skipped job with invalid data: {job.get('title', 'Unknown')}")
 
         # Send to Discord
         success = self._send_webhook(embeds)
@@ -76,7 +98,14 @@ class DiscordClient:
             if resp.status_code == 204:
                 return True
             else:
-                self.logger.error(f"Discord webhook returned {resp.status_code}")
+                error_msg = f"Discord webhook returned {resp.status_code}"
+                try:
+                    error_detail = resp.json()
+                    error_msg += f": {error_detail}"
+                except:
+                    error_msg += f": {resp.text[:200]}"
+
+                self.logger.error(error_msg)
                 return False
 
         except Exception as e:

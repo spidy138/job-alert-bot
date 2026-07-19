@@ -272,14 +272,18 @@ Examples:
         logger.info("Naukri: disabled in config")
 
     # ─── FILTER OUT SEEN JOBS ─────────────────────────────────────────────────
-    new_jobs = []
-    for job in all_jobs:
-        jid = job_id(job["title"], job["company"], job["link"])
-        if jid not in seen[profile_location_key]:
-            seen[profile_location_key].add(jid)
-            new_jobs.append(job)
+    # COMMENTED OUT: Sending all jobs without deduplication for testing
+    # new_jobs = []
+    # for job in all_jobs:
+    #     jid = job_id(job["title"], job["company"], job["link"])
+    #     if jid not in seen[profile_location_key]:
+    #         seen[profile_location_key].add(jid)
+    #         new_jobs.append(job)
+    #
+    # logger.info(f"New jobs found: {len(new_jobs)} (out of {len(all_jobs)} total)")
 
-    logger.info(f"New jobs found: {len(new_jobs)} (out of {len(all_jobs)} total)")
+    new_jobs = all_jobs  # Send ALL jobs found
+    logger.info(f"Jobs found (all, no deduplication): {len(new_jobs)}")
 
     # ─── SEND TO DISCORD ──────────────────────────────────────────────────────
     if new_jobs:
@@ -301,8 +305,9 @@ Examples:
         logger.info("No new jobs to notify")
 
     # ─── SAVE STATE ────────────────────────────────────────────────────────────
-    save_seen_jobs(seen)
-    logger.info(f"State saved - Completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    # COMMENTED OUT: Not tracking seen jobs for testing
+    # save_seen_jobs(seen)
+    logger.info(f"Completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (deduplication disabled)")
 
 
 if __name__ == "__main__":
