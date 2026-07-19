@@ -103,8 +103,15 @@ class LinkedInSearcher:
         return jobs
     
     def _search_keyword_location(self, keyword: str, location: str, hours: int) -> List[Dict]:
-        """Search single keyword+location combination on LinkedIn"""
+        """Search single keyword+location combination on LinkedIn
+
+        Note on time filtering: LinkedIn's job search API (seeMoreJobPostings) does not provide
+        a time-based filter parameter. The sortBy=DD (date descending) sorts results by recency,
+        but the actual time window filtering happens in post-processing. This ensures we only
+        return jobs posted within the specified hours window.
+        """
         jobs = []
+        stats = {"total_cards": 0, "parsed": 0, "english": 0, "location": 0, "time": 0, "accepted": 0}
 
         query = quote_plus(keyword)
         loc = quote_plus(location)
@@ -114,14 +121,21 @@ class LinkedInSearcher:
             f"?keywords={query}&location={loc}&distance=100&sortBy=DD"
         )
 
+        self.logger.debug(f"LinkedIn: GET {url}")
+
         try:
             resp = self.session.get(url, timeout=15)
             if resp.status_code != 200:
-                self.logger.debug(f"LinkedIn HTTP {resp.status_code} for {keyword}")
+                self.logger.warning(f"LinkedIn HTTP {resp.status_code} for '{keyword}' in {location}")
                 return []
+
+            self.logger.debug(f"LinkedIn: Response status {resp.status_code}, content length: {len(resp.text)} bytes")
 
             soup = BeautifulSoup(resp.text, "html.parser")
             cards = soup.find_all("li")
+            stats["total_cards"] = len(cards)
+
+            self.logger.info(f"LinkedIn: Found {stats['total_cards']} cards for '{keyword}' in {location}")
 
             for card in cards[:20]:
                 try:
@@ -133,8 +147,10 @@ class LinkedInSearcher:
                     desc_el = card.find("p", class_="base-search-card__snippet")
 
                     if not all([title_el, company_el, link_el]):
+                        self.logger.log(5, f"LinkedIn: Skipped incomplete card (missing fields)")
                         continue
 
+                    stats["parsed"] += 1
                     title = title_el.get_text(strip=True)
                     company = company_el.get_text(strip=True)
                     link = link_el.get("href", "").split("?")[0]
@@ -142,19 +158,24 @@ class LinkedInSearcher:
                     description = desc_el.get_text(strip=True) if desc_el else "No description"
                     posted_str = time_el.get_text(strip=True) if time_el else ""
 
-                    # Validate
+                    # Validate: English text
                     if not is_english(title) or not is_english(description):
-                        self.logger.log(5, f"LinkedIn: Filtered non-English - {title[:30]}")
+                        self.logger.log(5, f"LinkedIn: Filtered non-English - '{title[:40]}'")
                         continue
+                    stats["english"] += 1
 
+                    # Validate: Location
                     if not is_relevant_location(location_text, location):
-                        self.logger.log(5, f"LinkedIn: Filtered wrong location - {location_text}")
+                        self.logger.log(5, f"LinkedIn: Filtered location - posted '{location_text}', searching '{location}'")
                         continue
+                    stats["location"] += 1
 
+                    # Validate: Posted within time window (post-processing filter)
                     posting_time = parse_posting_time(posted_str)
                     if not is_posted_within_hours(posting_time, hours):
-                        self.logger.log(5, f"LinkedIn: Filtered old posting - {posted_str}")
+                        self.logger.log(5, f"LinkedIn: Filtered old - posted '{posted_str}' (threshold: {hours}h)")
                         continue
+                    stats["time"] += 1
 
                     jobs.append({
                         "title": title,
@@ -169,14 +190,25 @@ class LinkedInSearcher:
                         "portal": "linkedin",
                     })
 
-                    self.logger.log(5, f"LinkedIn: Found job - {title[:50]}")
+                    stats["accepted"] += 1
+                    self.logger.log(5, f"LinkedIn: Accepted - '{title[:60]}' @ {company}")
 
                 except Exception as e:
-                    self.logger.log(5, f"LinkedIn: Error parsing job card - {e}")
+                    self.logger.log(5, f"LinkedIn: Error parsing card - {e}")
                     continue
 
+            # Log summary statistics
+            self.logger.info(
+                f"LinkedIn summary: {stats['total_cards']} cards -> "
+                f"{stats['parsed']} parsed -> "
+                f"{stats['english']} English -> "
+                f"{stats['location']} location match -> "
+                f"{stats['time']} recent -> "
+                f"{stats['accepted']} accepted"
+            )
+
         except Exception as e:
-            self.logger.warning(f"LinkedIn search error: {e}")
+            self.logger.error(f"LinkedIn search error for '{keyword}' in {location}: {e}")
 
         return jobs
 
@@ -222,10 +254,11 @@ class NaukriSearcher:
     def _search_keyword_location(self, keyword: str, location: str, hours: int) -> List[Dict]:
         """Search single keyword+location combination on Naukri"""
         jobs = []
+        stats = {"total_articles": 0, "parsed": 0, "english": 0, "location": 0, "time": 0, "accepted": 0}
 
         # Naukri India only
         if location.lower() not in ["bangalore", "bengaluru"]:
-            self.logger.log(5, f"Naukri: Skipping {location} (India only)")
+            self.logger.info(f"Naukri: Skipping '{location}' (India only)")
             return []
 
         skill_slug = keyword.replace(" ", "-").lower()
@@ -233,14 +266,21 @@ class NaukriSearcher:
 
         url = f"https://www.naukri.com/{skill_slug}-jobs-in-{location_slug}?experience=4,5,6,7,8"
 
+        self.logger.debug(f"Naukri: GET {url}")
+
         try:
             resp = self.session.get(url, timeout=15)
             if resp.status_code != 200:
-                self.logger.debug(f"Naukri HTTP {resp.status_code} for {keyword}")
+                self.logger.warning(f"Naukri HTTP {resp.status_code} for '{keyword}' in {location}")
                 return []
+
+            self.logger.debug(f"Naukri: Response status {resp.status_code}, content length: {len(resp.text)} bytes")
 
             soup = BeautifulSoup(resp.text, "html.parser")
             articles = soup.find_all("article", class_="jobTuple")
+            stats["total_articles"] = len(articles)
+
+            self.logger.info(f"Naukri: Found {stats['total_articles']} job articles for '{keyword}' in {location}")
 
             for article in articles[:20]:
                 try:
@@ -248,8 +288,10 @@ class NaukriSearcher:
                     company_el = article.find("a", class_="subTitle")
 
                     if not title_el:
+                        self.logger.log(5, f"Naukri: Skipped incomplete article (no title)")
                         continue
 
+                    stats["parsed"] += 1
                     title = title_el.get_text(strip=True)
                     company = company_el.get_text(strip=True) if company_el else "Unknown"
                     link = title_el.get("href", "")
@@ -266,19 +308,24 @@ class NaukriSearcher:
                     time_el = article.find("span", class_="fleft grey-text br2 placeHolderLi")
                     posted_str = time_el.get_text(strip=True) if time_el else ""
 
-                    # Validate
+                    # Validate: English text
                     if not is_english(title) or not is_english(description):
-                        self.logger.log(5, f"Naukri: Filtered non-English - {title[:30]}")
+                        self.logger.log(5, f"Naukri: Filtered non-English - '{title[:40]}'")
                         continue
+                    stats["english"] += 1
 
+                    # Validate: Location
                     if not is_relevant_location(location_text, location):
-                        self.logger.log(5, f"Naukri: Filtered wrong location - {location_text}")
+                        self.logger.log(5, f"Naukri: Filtered location - posted '{location_text}', searching '{location}'")
                         continue
+                    stats["location"] += 1
 
+                    # Validate: Posted within time window
                     posting_time = parse_posting_time(posted_str)
                     if not is_posted_within_hours(posting_time, hours):
-                        self.logger.log(5, f"Naukri: Filtered old posting - {posted_str}")
+                        self.logger.log(5, f"Naukri: Filtered old - posted '{posted_str}' (threshold: {hours}h)")
                         continue
+                    stats["time"] += 1
 
                     jobs.append({
                         "title": title,
@@ -293,13 +340,24 @@ class NaukriSearcher:
                         "portal": "naukri",
                     })
 
-                    self.logger.log(5, f"Naukri: Found job - {title[:50]}")
+                    stats["accepted"] += 1
+                    self.logger.log(5, f"Naukri: Accepted - '{title[:60]}' @ {company}")
 
                 except Exception as e:
-                    self.logger.log(5, f"Naukri: Error parsing job card - {e}")
+                    self.logger.log(5, f"Naukri: Error parsing article - {e}")
                     continue
 
+            # Log summary statistics
+            self.logger.info(
+                f"Naukri summary: {stats['total_articles']} articles -> "
+                f"{stats['parsed']} parsed -> "
+                f"{stats['english']} English -> "
+                f"{stats['location']} location match -> "
+                f"{stats['time']} recent -> "
+                f"{stats['accepted']} accepted"
+            )
+
         except Exception as e:
-            self.logger.warning(f"Naukri search error: {e}")
+            self.logger.error(f"Naukri search error for '{keyword}' in {location}: {e}")
 
         return jobs
