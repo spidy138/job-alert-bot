@@ -31,11 +31,19 @@
       "description": "Python full-stack developer roles",
       "cron": "0 0 * * *",
       "portal": "all"
+    },
+    "dotnet-backend": {
+      "type": "keyword",
+      "keywords": ["c#", "dotnet", ".net", "asp.net"],
+      "description": "Backend roles using .NET/C#",
+      "hours": 6,
+      "cron": "0 */4 * * *",
+      "portal": "all",
+      "comment": "C# and .NET backend developer roles"
     }
- 
   },
   "discord": {
-    "webhook_url_env": "DISCORD_WEBHOOK",
-    "comment": "Set DISCORD_WEBHOOK environment variable with your Discord webhook URL"
+    "webhook_url_env": "DISCORD_WEBHOOK_URL",
+    "comment": "Set DISCORD_WEBHOOK_URL environment variable with your Discord webhook URL"
   }
 }
