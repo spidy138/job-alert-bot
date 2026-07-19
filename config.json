@@ -1,0 +1,48 @@
+{
+  "logging": {
+    "level": "INFO",
+    "comment": "Options: INFO, DEBUG, VERBOSE"
+  },
+  "linkedin": {
+    "enabled": true,
+    "locations": ["Bangalore", "Berlin", "Munich", "Frankfurt"],
+    "hours": 4,
+    "comment": "LinkedIn specific configuration"
+  },
+  "naukri": {
+    "enabled": true,
+    "locations": ["Bangalore"],
+    "hours": 24,
+    "comment": "Naukri specific configuration (India only)"
+  },
+  "profiles": {
+    "node-backend": {
+      "type": "keyword",
+      "keywords": ["node", "nodejs", "express", "javascript", "typescript"],
+      "description": "Backend roles using Node.js",
+      "cron": "0 */4 * * *",
+      "portal": "all",
+      "comment": "Optional: seniority, min_years fields can be added"
+    },
+    "python-fullstack": {
+      "type": "keyword",
+      "keywords": ["python", "django", "fastapi", "react", "postgresql"],
+      "description": "Python full-stack developer roles",
+      "cron": "0 0 * * *",
+      "portal": "all"
+    },
+    "senior-node": {
+      "type": "keyword",
+      "keywords": ["node", "nodejs", "express"],
+      "description": "Senior Node.js roles (with seniority filter)",
+      "seniority": ["senior", "lead", "principal"],
+      "min_years": 5,
+      "cron": "0 0 * * *",
+      "portal": "all"
+    }
+  },
+  "discord": {
+    "webhook_url_env": "DISCORD_WEBHOOK_URL",
+    "comment": "Discord webhook URL read from environment variable"
+  }
+}
