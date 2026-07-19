@@ -77,3 +77,12 @@ def test_is_relevant_location():
     assert is_relevant_location("Bangalore, India", "Bangalore") == True
     assert is_relevant_location("Berlin, Germany", "Berlin") == True
     assert is_relevant_location("Delhi", "Bangalore") == False
+
+
+def test_naukri_india_location_filter():
+    """Test Naukri filters non-India locations"""
+    logger = Mock()
+    searcher = NaukriSearcher(logger)
+    # Berlin is not India, should return empty
+    result = searcher._search_keyword_location("python", "Berlin", 24)
+    assert result == []

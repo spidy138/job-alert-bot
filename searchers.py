@@ -220,6 +220,86 @@ class NaukriSearcher:
         return jobs
     
     def _search_keyword_location(self, keyword: str, location: str, hours: int) -> List[Dict]:
-        """Search single keyword+location combination"""
-        # Placeholder - will be filled in Task 6
-        return []
+        """Search single keyword+location combination on Naukri"""
+        jobs = []
+
+        # Naukri India only
+        if location.lower() not in ["bangalore", "bengaluru"]:
+            self.logger.log(5, f"Naukri: Skipping {location} (India only)")
+            return []
+
+        skill_slug = keyword.replace(" ", "-").lower()
+        location_slug = "bengaluru" if location.lower() in ["bangalore", "bengaluru"] else location.lower()
+
+        url = f"https://www.naukri.com/{skill_slug}-jobs-in-{location_slug}?experience=4,5,6,7,8"
+
+        try:
+            resp = self.session.get(url, timeout=15)
+            if resp.status_code != 200:
+                self.logger.debug(f"Naukri HTTP {resp.status_code} for {keyword}")
+                return []
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            articles = soup.find_all("article", class_="jobTuple")
+
+            for article in articles[:20]:
+                try:
+                    title_el = article.find("a", class_="title")
+                    company_el = article.find("a", class_="subTitle")
+
+                    if not title_el:
+                        continue
+
+                    title = title_el.get_text(strip=True)
+                    company = company_el.get_text(strip=True) if company_el else "Unknown"
+                    link = title_el.get("href", "")
+
+                    # Get location
+                    loc_els = article.find_all("li", class_="fleft")
+                    location_text = loc_els[0].get_text(strip=True) if loc_els else "Unknown"
+
+                    # Get description
+                    desc_el = article.find("p", class_="job-desc")
+                    description = desc_el.get_text(strip=True) if desc_el else title
+
+                    # Get posting time
+                    time_el = article.find("span", class_="fleft grey-text br2 placeHolderLi")
+                    posted_str = time_el.get_text(strip=True) if time_el else ""
+
+                    # Validate
+                    if not is_english(title) or not is_english(description):
+                        self.logger.log(5, f"Naukri: Filtered non-English - {title[:30]}")
+                        continue
+
+                    if not is_relevant_location(location_text, location):
+                        self.logger.log(5, f"Naukri: Filtered wrong location - {location_text}")
+                        continue
+
+                    posting_time = parse_posting_time(posted_str)
+                    if not is_posted_within_hours(posting_time, hours):
+                        self.logger.log(5, f"Naukri: Filtered old posting - {posted_str}")
+                        continue
+
+                    jobs.append({
+                        "title": title,
+                        "company": company,
+                        "link": link,
+                        "location": location_text,
+                        "description": description,
+                        "posted": posted_str if posted_str else "Recently",
+                        "posted_datetime": posting_time,
+                        "source": "Naukri",
+                        "skill": keyword,
+                        "portal": "naukri",
+                    })
+
+                    self.logger.log(5, f"Naukri: Found job - {title[:50]}")
+
+                except Exception as e:
+                    self.logger.log(5, f"Naukri: Error parsing job card - {e}")
+                    continue
+
+        except Exception as e:
+            self.logger.warning(f"Naukri search error: {e}")
+
+        return jobs
