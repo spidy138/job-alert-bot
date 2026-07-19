@@ -2,8 +2,9 @@ name: Job Alert - node-backend
 
 on:
   schedule:
-    # Specific times: 1pm, 5pm, 9pm UTC (13:00, 17:00, 21:00)
-    - cron: '0 13,17,21 * * *'
+    # IST times: 1pm (07:30 UTC), 5pm (11:30 UTC), 9:30pm (16:00 UTC)
+    - cron: '30 7,11 * * *'
+    - cron: '0 16 * * *'
   workflow_dispatch:
 
 jobs:
