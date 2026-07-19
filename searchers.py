@@ -275,11 +275,15 @@ class NaukriSearcher:
         skill_slug = keyword.replace(" ", "-").lower()
         location_slug = "bengaluru" if location.lower() in ["bangalore", "bengaluru"] else location.lower()
 
-        # Naukri URL: Removed experience filter, added sort=recency for latest jobs
-        # Note: Naukri only provides jobs from last ~24 hours
-        url = f"https://www.naukri.com/{skill_slug}-jobs-in-{location_slug}?sort=recency"
+        # Convert hours to days for jobAge parameter (minimum 1 day)
+        # jobAge=1 = last 1 day, jobAge=7 = last 7 days, etc.
+        job_age_days = max(1, hours // 24)
 
-        self.logger.debug(f"Naukri: GET {url}")
+        # Naukri URL: Removed experience filter, added sort=recency and jobAge filter
+        # jobAge parameter filters jobs by age (1 = last day, 7 = last week, etc.)
+        url = f"https://www.naukri.com/{skill_slug}-jobs-in-{location_slug}?sort=recency&jobAge={job_age_days}"
+
+        self.logger.debug(f"Naukri: GET {url} (jobAge={job_age_days}d)")
 
         try:
             resp = self.session.get(url, timeout=15)
@@ -293,7 +297,7 @@ class NaukriSearcher:
             articles = soup.find_all("article", class_="jobTuple")
             stats["total_articles"] = len(articles)
 
-            self.logger.info(f"Naukri: Found {stats['total_articles']} job articles for '{keyword}' in {location}")
+            self.logger.info(f"Naukri: Found {stats['total_articles']} job articles for '{keyword}' in {location} (jobAge={job_age_days}d)")
 
             for article in articles[:20]:
                 try:
