@@ -257,7 +257,13 @@ class NaukriSearcher:
         return jobs
     
     def _search_keyword_location(self, keyword: str, location: str, hours: int) -> List[Dict]:
-        """Search single keyword+location combination on Naukri"""
+        """Search single keyword+location combination on Naukri
+
+        IMPORTANT: Naukri only provides jobs posted in the last ~24 hours maximum.
+        Time filtering is converted from hours to days (minimum 1 day).
+        Experience filter has been removed from the URL as per requirements.
+        Uses sort=recency to get most recent jobs.
+        """
         jobs = []
         stats = {"total_articles": 0, "parsed": 0, "english": 0, "location": 0, "time": 0, "accepted": 0}
 
@@ -269,7 +275,9 @@ class NaukriSearcher:
         skill_slug = keyword.replace(" ", "-").lower()
         location_slug = "bengaluru" if location.lower() in ["bangalore", "bengaluru"] else location.lower()
 
-        url = f"https://www.naukri.com/{skill_slug}-jobs-in-{location_slug}?experience=4,5,6,7,8"
+        # Naukri URL: Removed experience filter, added sort=recency for latest jobs
+        # Note: Naukri only provides jobs from last ~24 hours
+        url = f"https://www.naukri.com/{skill_slug}-jobs-in-{location_slug}?sort=recency"
 
         self.logger.debug(f"Naukri: GET {url}")
 
@@ -326,10 +334,20 @@ class NaukriSearcher:
                     stats["location"] += 1
 
                     # Validate: Posted within time window
+                    # NOTE: Naukri API only provides jobs posted in last ~24 hours max
+                    # Convert hours to days for Naukri filtering (1 day threshold)
                     posting_time = parse_posting_time(posted_str)
-                    if not is_posted_within_hours(posting_time, hours):
-                        self.logger.log(5, f"Naukri: Filtered old - posted '{posted_str}' (threshold: {hours}h)")
-                        continue
+                    days_threshold = max(1, hours // 24)  # Convert hours to days, minimum 1 day
+
+                    if posting_time:
+                        hours_ago = (datetime.now() - posting_time).total_seconds() / 3600
+                        if hours_ago > (days_threshold * 24):
+                            self.logger.log(5, f"Naukri: Filtered old - posted '{posted_str}' (threshold: {days_threshold}d)")
+                            continue
+                    else:
+                        # If no time found, accept it (Naukri limitation)
+                        self.logger.log(5, f"Naukri: No posting time found - accepting job")
+
                     stats["time"] += 1
 
                     jobs.append({
@@ -353,12 +371,13 @@ class NaukriSearcher:
                     continue
 
             # Log summary statistics
+            days_threshold = max(1, hours // 24)
             self.logger.info(
                 f"Naukri summary: {stats['total_articles']} articles -> "
                 f"{stats['parsed']} parsed -> "
                 f"{stats['english']} English -> "
                 f"{stats['location']} location match -> "
-                f"{stats['time']} recent -> "
+                f"{stats['time']} recent (threshold: {days_threshold}d) -> "
                 f"{stats['accepted']} accepted"
             )
 
