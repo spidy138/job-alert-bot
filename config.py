@@ -67,3 +67,92 @@ def validate_config(config: Dict[str, Any]) -> bool:
         raise ValueError("Missing discord.webhook_url_env")
 
     return True
+
+def resolve_search_keywords(config: dict, profile_name: str, resume_text: str) -> set:
+    """
+    Resolve search keywords for a profile based on search mode.
+
+    Args:
+        config: Configuration dictionary
+        profile_name: Name of profile to search
+        resume_text: Lowercased resume text (for resume mode)
+
+    Returns:
+        Set of keywords to search for
+
+    Raises:
+        ValueError: If profile not found
+    """
+    if profile_name not in config["profiles"]:
+        raise ValueError(f"Profile '{profile_name}' not found in config")
+
+    profile = config["profiles"][profile_name]
+    keywords = set()
+
+    # Profile defines explicit keywords
+    if "keywords" in profile and profile["keywords"]:
+        keywords.update(profile["keywords"])
+
+    # If no keywords in profile, extract from resume
+    if not keywords and resume_text:
+        keywords = extract_keywords_from_resume(resume_text)
+
+    return keywords
+
+def extract_keywords_from_resume(resume_text: str) -> set:
+    """
+    Extract tech skills from resume text.
+
+    Args:
+        resume_text: Lowercased resume text
+
+    Returns:
+        Set of found skills
+    """
+    skills = {
+        # Languages
+        "python", "typescript", "javascript", "java", "c#", "csharp", "dotnet", ".net",
+        "golang", "go", "rust", "ruby", "php", "kotlin", "scala", "sql",
+        # Backend
+        "nodejs", "node.js", "express", "express.js", "asp.net", "asp.net core",
+        "fastapi", "django", "flask", "spring", "springboot", "gin", "actix",
+        "rest", "rest api", "graphql", "grpc", "microservices",
+        # Frontend
+        "react", "vue", "angular", "svelte", "nextjs", "next.js", "pwa",
+        "react native", "expo", "flutter", "swift", "kotlin",
+        # Databases
+        "postgresql", "postgres", "mysql", "mongodb", "redis", "cassandra",
+        "dynamodb", "cosmosdb", "cosmos db", "elasticsearch", "clickhouse",
+        # Cloud
+        "aws", "azure", "gcp", "google cloud", "kubernetes", "k8s", "docker",
+        "istio", "service mesh", "docker compose", "terraform",
+        # Data
+        "kafka", "rabbitmq", "kinesis", "spark", "hadoop", "airflow",
+        "olap", "apache", "strimzi", "time-series",
+        # DevOps
+        "ci/cd", "cicd", "jenkins", "gitlab", "github actions", "devops",
+        "linux", "bash", "git", "terraform", "ansible",
+        # AI/ML
+        "rag", "retrieval augmented", "langchain", "llm", "openai", "claude",
+        "gemini", "transformers", "pytorch", "tensorflow", "huggingface",
+        "machine learning", "deep learning", "nlp",
+        # Architecture
+        "distributed systems", "system design", "scalability", "microservices",
+        "event-driven", "chaos engineering", "multi-tenant",
+        # Observability
+        "prometheus", "grafana", "datadog", "newrelic", "elastic", "splunk",
+        "observability", "monitoring", "logging",
+        # Security
+        "security", "oauth", "jwt", "tls", "encryption", "penetration testing",
+        "https", "https mitm", "ssl", "certificate",
+        # Other
+        "agile", "scrum", "jira", "confluence", "testing", "unittest",
+        "integration testing", "performance testing", "load testing"
+    }
+
+    found = set()
+    for skill in skills:
+        if skill in resume_text:
+            found.add(skill)
+
+    return found

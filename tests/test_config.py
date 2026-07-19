@@ -59,3 +59,42 @@ def test_validate_config_missing_profiles():
     }
     with pytest.raises(ValueError, match="profiles"):
         validate_config(config)
+
+def test_resolve_keywords_from_profile():
+    """Test extracting keywords from profile"""
+    from config import resolve_search_keywords
+    config = {
+        "profiles": {
+            "node-backend": {
+                "keywords": ["node", "nodejs", "express"],
+                "type": "keyword"
+            }
+        }
+    }
+    keywords = resolve_search_keywords(config, "node-backend", "")
+    assert "node" in keywords
+    assert "nodejs" in keywords
+    assert "express" in keywords
+
+def test_resolve_keywords_from_resume():
+    """Test extracting keywords from resume text"""
+    from config import resolve_search_keywords
+    config = {
+        "profiles": {
+            "resume-search": {
+                "type": "keyword",
+                "keywords": []  # Empty, should use resume
+            }
+        }
+    }
+    resume = "python typescript react postgresql"
+    keywords = resolve_search_keywords(config, "resume-search", resume)
+    # Should extract from resume
+    assert "python" in keywords or "typescript" in keywords
+
+def test_resolve_keywords_missing_profile():
+    """Test error on missing profile"""
+    from config import resolve_search_keywords
+    config = {"profiles": {}}
+    with pytest.raises(ValueError, match="not found"):
+        resolve_search_keywords(config, "nonexistent", "")
