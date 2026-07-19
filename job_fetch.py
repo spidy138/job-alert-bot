@@ -49,13 +49,29 @@ def load_seen_jobs() -> Dict[str, Set[str]]:
     """
     Load seen jobs tracking from JSON file.
 
+    The seen_jobs.json file tracks job postings per profile:location combination
+    to prevent duplicate notifications. Format:
+
+        {
+          "profile-name:location": ["hash1", "hash2", ...],
+          "another-profile:location": ["hash3", ...]
+        }
+
+    Each hash is MD5(title + company + link) and uniquely identifies a job posting.
+
     Returns:
-        Dictionary mapping profile:location keys to sets of seen job IDs
+        Dictionary mapping profile:location keys to sets of seen job hashes.
+        Returns empty dict if file doesn't exist or is malformed.
+
+    Note:
+        - Auto-creates file on first save if missing
+        - Converts JSON lists to Python sets for O(1) lookup performance
+        - Keeps last 10,000 hashes per profile:location to prevent unbounded growth
     """
     if SEEN_JOBS_FILE.exists():
         try:
             data = json.loads(SEEN_JOBS_FILE.read_text())
-            # Convert lists back to sets
+            # Convert lists back to sets for O(1) lookups
             return {k: set(v) for k, v in data.items()}
         except Exception:
             return {}
@@ -66,8 +82,20 @@ def save_seen_jobs(seen: Dict[str, Set[str]]):
     """
     Save seen jobs tracking to JSON file.
 
+    Persists the job tracking state to enable duplicate prevention across runs.
+    Each profile:location combination maintains its own independent history.
+
     Args:
-        seen: Dictionary mapping profile:location keys to sets of seen job IDs
+        seen: Dictionary mapping profile:location keys to sets of job hashes.
+              Format: {"profile-name:location": {"hash1", "hash2", ...}, ...}
+
+    Implementation details:
+        - Converts Python sets to JSON lists for serialization
+        - Keeps only last 10,000 hashes per profile:location to prevent file bloat
+        - Creates file at SEEN_JOBS_FILE if it doesn't exist
+        - Prettifies output with 2-space indentation for readability
+
+    Hash calculation: MD5(title|company|link) as hex string
     """
     # Convert sets to lists for JSON serialization
     # Keep last 10k per profile to avoid unbounded growth
