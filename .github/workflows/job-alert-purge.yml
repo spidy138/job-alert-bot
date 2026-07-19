@@ -1,0 +1,55 @@
+name: Discord Channel Purge
+
+on:
+  schedule:
+    # 3pm UTC (15:00)
+    - cron: '0 15 * * *'
+    # 1am UTC (01:00)
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Send purge signal to Discord
+        run: |
+          import requests
+          import os
+
+          webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+
+          if not webhook_url:
+              print("❌ DISCORD_WEBHOOK_URL not set")
+              exit(1)
+
+          # Send purge signal message
+          payload = {
+              "embeds": [
+                  {
+                      "title": "🧹 Discord Channel Purge",
+                      "description": "Cleaning up old job postings...\n\nOld messages will be deleted to keep the channel organized.",
+                      "color": 15105570,  # Orange
+                      "footer": {"text": "Job Alert Bot - Scheduled Cleanup"}
+                  }
+              ]
+          }
+
+          resp = requests.post(webhook_url, json=payload, timeout=10)
+          print(f"Purge signal sent: Status {resp.status_code}")
+
+          if resp.status_code == 204:
+              print("✅ Purge initiated")
+          else:
+              print(f"⚠️ Status: {resp.status_code}")
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        shell: python

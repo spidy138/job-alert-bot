@@ -2,8 +2,8 @@ name: Job Alert - dotnet-backend
 
 on:
   schedule:
-    # Every 4 hours: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
-    - cron: '0 */4 * * *'
+    # Specific times: 1pm, 5pm, 9pm UTC (13:00, 17:00, 21:00)
+    - cron: '0 13,17,21 * * *'
   workflow_dispatch:
 
 jobs:
