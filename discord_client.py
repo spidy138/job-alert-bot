@@ -48,7 +48,7 @@ class DiscordClient:
 
     def send_jobs(self, jobs: List[Dict], profile_name: str) -> bool:
         """
-        Send jobs to Discord via webhook.
+        Send jobs to Discord via webhook in batches.
 
         Args:
             jobs: List of job dictionaries
@@ -61,33 +61,46 @@ class DiscordClient:
             self.logger.log(5, f"No new jobs for profile '{profile_name}'")
             return True
 
-        embeds = []
+        # Send jobs in batches of 5 (with header = 6 embeds per message, under 10 limit)
+        batch_size = 5
+        total_jobs = len(jobs)
+        all_success = True
 
-        # Header embed
-        embeds.append({
-            "title": f"🎯 {profile_name.title()} Jobs",
-            "description": f"Found {len(jobs)} fresh job(s) in the last search",
-            "color": 3447003,
-            "footer": {"text": f"Job Alert Bot"},
-        })
+        for batch_num, i in enumerate(range(0, total_jobs, batch_size), 1):
+            batch_jobs = jobs[i:i+batch_size]
+            embeds = []
 
-        # Add job embeds (max 10 per message)
-        for job in jobs[:10]:
-            embed = format_job_embed(job)
-            if embed:
-                embeds.append(embed)
+            # Header embed
+            embeds.append({
+                "title": f"🎯 {profile_name.title()} Jobs (Batch {batch_num})",
+                "description": f"Found {total_jobs} job(s) total | Batch {batch_num}: {len(batch_jobs)} job(s)",
+                "color": 3447003,
+                "footer": {"text": f"Job Alert Bot"},
+            })
+
+            # Add job embeds for this batch
+            for job in batch_jobs:
+                embed = format_job_embed(job)
+                if embed:
+                    embeds.append(embed)
+                else:
+                    self.logger.log(5, f"Skipped job with invalid data: {job.get('title', 'Unknown')}")
+
+            # Send batch to Discord
+            batch_success = self._send_webhook(embeds)
+
+            if batch_success:
+                self.logger.info(f"✅ Sent batch {batch_num} ({len(batch_jobs)} jobs)")
             else:
-                self.logger.log(5, f"Skipped job with invalid data: {job.get('title', 'Unknown')}")
+                self.logger.error(f"❌ Failed to send batch {batch_num}")
+                all_success = False
 
-        # Send to Discord
-        success = self._send_webhook(embeds)
-
-        if success:
-            self.logger.info(f"✅ Sent {len(jobs)} job(s) to Discord for profile '{profile_name}'")
+        if all_success:
+            self.logger.info(f"✅ All {total_jobs} job(s) sent to Discord for profile '{profile_name}'")
         else:
-            self.logger.error(f"❌ Failed to send {len(jobs)} job(s) to Discord")
+            self.logger.error(f"❌ Failed to send some batches for profile '{profile_name}'")
 
-        return success
+        return all_success
 
     def _send_webhook(self, embeds: List[Dict]) -> bool:
         """Send embeds to Discord webhook"""
