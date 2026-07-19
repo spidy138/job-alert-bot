@@ -10,7 +10,7 @@ jobs:
   search:
     strategy:
       matrix:
-        location: ["Bangalore", "Berlin"]
+        location: ["Bengaluru"]
     runs-on: ubuntu-latest
 
     steps:

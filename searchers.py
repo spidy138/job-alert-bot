@@ -5,6 +5,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict
 from urllib.parse import quote_plus
+import os
+import json
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -105,10 +107,8 @@ class LinkedInSearcher:
     def _search_keyword_location(self, keyword: str, location: str, hours: int) -> List[Dict]:
         """Search single keyword+location combination on LinkedIn
 
-        IMPORTANT: LinkedIn's guest API (seeMoreJobPostings) no longer returns posting time data.
-        As of recent API changes, the HTML response does not include timestamp information.
-        Therefore, all jobs found are returned regardless of the hours parameter.
-        Naukri still provides posting times and respects the time window filter.
+        LinkedIn time filter (f_TPR): r40000=24h, r604800=7days, r2592000=30days
+        Filters jobs by posting date to match the hours parameter.
         """
         jobs = []
         stats = {"total_cards": 0, "parsed": 0, "english": 0, "location": 0, "time": 0, "accepted": 0}
@@ -116,12 +116,22 @@ class LinkedInSearcher:
         query = quote_plus(keyword)
         loc = quote_plus(location)
 
+        # Calculate LinkedIn time filter based on hours
+        # LinkedIn only supports: 24h (r40000), 7d (r604800), 30d (r2592000)
+        # Always use the tightest filter that includes our time window
+        if hours <= 24:
+            time_filter = "r40000"  # last 24 hours (covers 1-24h requests)
+        elif hours <= 168:
+            time_filter = "r604800"  # last 7 days (covers 1-168h requests)
+        else:
+            time_filter = "r2592000"  # last 30 days (covers 1-720h requests)
+
         url = (
             f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
-            f"?keywords={query}&location={loc}&distance=100&sortBy=DD"
+            f"?keywords={query}&location={loc}&distance=100&sortBy=DD&f_TPR={time_filter}"
         )
 
-        self.logger.debug(f"LinkedIn: GET {url}")
+        self.logger.debug(f"LinkedIn: GET {url} (time_filter={time_filter}, hours_requested={hours})")
 
         try:
             resp = self.session.get(url, timeout=15)
@@ -220,11 +230,32 @@ class LinkedInSearcher:
 
 class NaukriSearcher:
     """Search Naukri for jobs matching keywords"""
-    
+
     def __init__(self, logger: logging.Logger):
         self.logger = logger
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
+        self.nkparam = self._load_nkparam()
+
+    def _load_nkparam(self) -> str:
+        """Load nkparam from saved session file, extract fresh if needed"""
+        session_file = "naukri_session.json"
+
+        # Try to load from file
+        if os.path.exists(session_file):
+            try:
+                with open(session_file, "r") as f:
+                    data = json.load(f)
+                    nkparam = data.get("nkparam")
+                    if nkparam:
+                        self.logger.log(5, f"Naukri: Loaded nkparam from {session_file}")
+                        return nkparam
+            except Exception as e:
+                self.logger.log(5, f"Naukri: Could not load session file: {e}")
+
+        # Fallback to hardcoded value (will need manual refresh if expired)
+        self.logger.log(5, f"Naukri: No session file found, using default nkparam")
+        return "KGxYt2w1E12Y6PmzZdi1CfkHhfrlIuSg4Mztslb8ezmDVUstPnDaLx1e2zNQaZM04ZhXkUDLnoPw65kO4XYZGQ=="
     
     def search(self, keywords: List[str], locations: List[str], hours: int) -> List[Dict]:
         """
@@ -257,73 +288,96 @@ class NaukriSearcher:
         return jobs
     
     def _search_keyword_location(self, keyword: str, location: str, hours: int) -> List[Dict]:
-        """Search single keyword+location combination on Naukri
+        """Search single keyword+location combination on Naukri using jobapi/v3/search
 
-        IMPORTANT: Naukri only provides jobs posted in the last ~24 hours maximum.
+        IMPORTANT: Naukri provides jobs via jobapi/v3/search endpoint (JSON API).
+        API requires nkparam authentication token. Naukri only provides jobs from last 24 hours.
         Time filtering is converted from hours to days (minimum 1 day).
-        Experience filter has been removed from the URL as per requirements.
-        Uses sort=recency to get most recent jobs.
         """
         jobs = []
-        stats = {"total_articles": 0, "parsed": 0, "english": 0, "location": 0, "time": 0, "accepted": 0}
+        stats = {"total_found": 0, "parsed": 0, "english": 0, "location": 0, "time": 0, "accepted": 0}
 
         # Naukri India only
         if location.lower() not in ["bangalore", "bengaluru"]:
             self.logger.info(f"Naukri: Skipping '{location}' (India only)")
             return []
 
-        skill_slug = keyword.replace(" ", "-").lower()
-        location_slug = "bengaluru" if location.lower() in ["bangalore", "bengaluru"] else location.lower()
-
         # Convert hours to days for jobAge parameter (minimum 1 day)
-        # jobAge=1 = last 1 day, jobAge=7 = last 7 days, etc.
         job_age_days = max(1, hours // 24)
 
-        # Naukri URL: Removed experience filter, added sort=recency and jobAge filter
-        # jobAge parameter filters jobs by age (1 = last day, 7 = last week, etc.)
-        url = f"https://www.naukri.com/{skill_slug}-jobs-in-{location_slug}?sort=recency&jobAge={job_age_days}"
+        url = "https://www.naukri.com/jobapi/v3/search"
+        params = {
+            "noOfResults": 20,
+            "urlType": "search_by_key_loc",
+            "searchType": "adv",
+            "location": "bengaluru" if location.lower() in ["bangalore", "bengaluru"] else location.lower(),
+            "keyword": keyword,
+            "sort": "recency",
+            "pageNo": 1,
+            "jobAge": job_age_days,
+            "seoKey": f"{keyword.replace(' ', '-')}-jobs-in-{location.lower()}",
+            "src": "directSearch",
+        }
 
-        self.logger.debug(f"Naukri: GET {url} (jobAge={job_age_days}d)")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Content-Type": "application/json",
+            "appid": "109",
+            "clientid": "d3skt0p",
+            "gid": "LOCATION,INDUSTRY,EDUCATION,FAREA_ROLE",
+            "systemid": "Naukri",
+            "nkparam": self.nkparam,
+            "Referer": f"https://www.naukri.com/{keyword.replace(' ', '-')}-jobs-in-{location.lower()}?sort=recency&jobAge={job_age_days}",
+        }
+
+        self.logger.debug(f"Naukri: GET {url} (keyword={keyword}, location={location}, jobAge={job_age_days}d)")
 
         try:
-            resp = self.session.get(url, timeout=15)
+            resp = self.session.get(url, params=params, headers=headers, timeout=15)
+
             if resp.status_code != 200:
                 self.logger.warning(f"Naukri HTTP {resp.status_code} for '{keyword}' in {location}")
                 return []
 
             self.logger.debug(f"Naukri: Response status {resp.status_code}, content length: {len(resp.text)} bytes")
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            articles = soup.find_all("article", class_="jobTuple")
-            stats["total_articles"] = len(articles)
+            data = resp.json()
+            job_details = data.get("jobDetails", [])
+            stats["total_found"] = len(job_details)
 
-            self.logger.info(f"Naukri: Found {stats['total_articles']} job articles for '{keyword}' in {location} (jobAge={job_age_days}d)")
+            self.logger.info(f"Naukri: Found {stats['total_found']} jobs for '{keyword}' in {location} (jobAge={job_age_days}d)")
 
-            for article in articles[:20]:
+            for job_data in job_details[:20]:
                 try:
-                    title_el = article.find("a", class_="title")
-                    company_el = article.find("a", class_="subTitle")
+                    title = job_data.get("title", "")
+                    company = job_data.get("companyName", "Unknown")
+                    link = job_data.get("jdURL", "")
+                    # Naukri API doesn't provide location, extract from title or other fields
+                    location_text = job_data.get("location", "")
+                    if not location_text:
+                        # Try to extract from other fields or use title
+                        location_text = job_data.get("jobLocation", "")
+                        if not location_text:
+                            # Location might be in the title
+                            location_text = "Bengaluru"  # Assume search location if not found
+                    description = job_data.get("jobDescription", title)
 
-                    if not title_el:
-                        self.logger.log(5, f"Naukri: Skipped incomplete article (no title)")
+                    if not title:
+                        self.logger.log(5, f"Naukri: Skipped job with no title")
                         continue
 
                     stats["parsed"] += 1
-                    title = title_el.get_text(strip=True)
-                    company = company_el.get_text(strip=True) if company_el else "Unknown"
-                    link = title_el.get("href", "")
 
-                    # Get location
-                    loc_els = article.find_all("li", class_="fleft")
-                    location_text = loc_els[0].get_text(strip=True) if loc_els else "Unknown"
-
-                    # Get description
-                    desc_el = article.find("p", class_="job-desc")
-                    description = desc_el.get_text(strip=True) if desc_el else title
-
-                    # Get posting time
-                    time_el = article.find("span", class_="fleft grey-text br2 placeHolderLi")
-                    posted_str = time_el.get_text(strip=True) if time_el else ""
+                    # Convert timestamp to string (createdDate is in milliseconds)
+                    created_ms = job_data.get("createdDate", 0)
+                    if created_ms:
+                        posting_time = datetime.fromtimestamp(created_ms / 1000.0)
+                        posted_str = posting_time.strftime("%d %b")
+                    else:
+                        posting_time = None
+                        posted_str = "Recently"
 
                     # Validate: English text
                     if not is_english(title) or not is_english(description):
@@ -333,23 +387,18 @@ class NaukriSearcher:
 
                     # Validate: Location
                     if not is_relevant_location(location_text, location):
-                        self.logger.log(5, f"Naukri: Filtered location - posted '{location_text}', searching '{location}'")
+                        self.logger.log(5, f"Naukri: Filtered location - job in '{location_text}', searching '{location}'")
                         continue
                     stats["location"] += 1
 
                     # Validate: Posted within time window
-                    # NOTE: Naukri API only provides jobs posted in last ~24 hours max
-                    # Convert hours to days for Naukri filtering (1 day threshold)
-                    posting_time = parse_posting_time(posted_str)
-                    days_threshold = max(1, hours // 24)  # Convert hours to days, minimum 1 day
-
+                    days_threshold = max(1, hours // 24)
                     if posting_time:
                         hours_ago = (datetime.now() - posting_time).total_seconds() / 3600
                         if hours_ago > (days_threshold * 24):
-                            self.logger.log(5, f"Naukri: Filtered old - posted '{posted_str}' (threshold: {days_threshold}d)")
+                            self.logger.log(5, f"Naukri: Filtered old - posted {days_ago:.0f} days ago (threshold: {days_threshold}d)")
                             continue
                     else:
-                        # If no time found, accept it (Naukri limitation)
                         self.logger.log(5, f"Naukri: No posting time found - accepting job")
 
                     stats["time"] += 1
@@ -360,7 +409,7 @@ class NaukriSearcher:
                         "link": link,
                         "location": location_text,
                         "description": description,
-                        "posted": posted_str if posted_str else "Recently",
+                        "posted": posted_str,
                         "posted_datetime": posting_time,
                         "source": "Naukri",
                         "skill": keyword,
@@ -371,13 +420,13 @@ class NaukriSearcher:
                     self.logger.log(5, f"Naukri: Accepted - '{title[:60]}' @ {company}")
 
                 except Exception as e:
-                    self.logger.log(5, f"Naukri: Error parsing article - {e}")
+                    self.logger.log(5, f"Naukri: Error parsing job - {e}")
                     continue
 
             # Log summary statistics
             days_threshold = max(1, hours // 24)
             self.logger.info(
-                f"Naukri summary: {stats['total_articles']} articles -> "
+                f"Naukri summary: {stats['total_found']} found -> "
                 f"{stats['parsed']} parsed -> "
                 f"{stats['english']} English -> "
                 f"{stats['location']} location match -> "

@@ -244,7 +244,10 @@ Examples:
     # ─── SEARCH PORTALS ───────────────────────────────────────────────────────
     all_jobs: List[Dict] = []
 
-    if portal in ["all", "linkedin"]:
+    linkedin_enabled = config.get("linkedin", {}).get("enabled", True)
+    naukri_enabled = config.get("naukri", {}).get("enabled", True)
+
+    if (portal in ["all", "linkedin"]) and linkedin_enabled:
         logger.info("Searching LinkedIn...")
         try:
             linkedin_searcher = LinkedInSearcher(logger)
@@ -253,8 +256,10 @@ Examples:
             logger.info(f"LinkedIn: found {len(linkedin_jobs)} jobs")
         except Exception as e:
             logger.error(f"LinkedIn search error: {e}")
+    elif portal in ["all", "linkedin"] and not linkedin_enabled:
+        logger.info("LinkedIn: disabled in config")
 
-    if portal in ["all", "naukri"]:
+    if (portal in ["all", "naukri"]) and naukri_enabled:
         logger.info("Searching Naukri...")
         try:
             naukri_searcher = NaukriSearcher(logger)
@@ -263,6 +268,8 @@ Examples:
             logger.info(f"Naukri: found {len(naukri_jobs)} jobs")
         except Exception as e:
             logger.error(f"Naukri search error: {e}")
+    elif portal in ["all", "naukri"] and not naukri_enabled:
+        logger.info("Naukri: disabled in config")
 
     # ─── FILTER OUT SEEN JOBS ─────────────────────────────────────────────────
     new_jobs = []
