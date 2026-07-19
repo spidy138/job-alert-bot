@@ -105,10 +105,10 @@ class LinkedInSearcher:
     def _search_keyword_location(self, keyword: str, location: str, hours: int) -> List[Dict]:
         """Search single keyword+location combination on LinkedIn
 
-        Note on time filtering: LinkedIn's job search API (seeMoreJobPostings) does not provide
-        a time-based filter parameter. The sortBy=DD (date descending) sorts results by recency,
-        but the actual time window filtering happens in post-processing. This ensures we only
-        return jobs posted within the specified hours window.
+        IMPORTANT: LinkedIn's guest API (seeMoreJobPostings) no longer returns posting time data.
+        As of recent API changes, the HTML response does not include timestamp information.
+        Therefore, all jobs found are returned regardless of the hours parameter.
+        Naukri still provides posting times and respects the time window filter.
         """
         jobs = []
         stats = {"total_cards": 0, "parsed": 0, "english": 0, "location": 0, "time": 0, "accepted": 0}
@@ -171,10 +171,16 @@ class LinkedInSearcher:
                     stats["location"] += 1
 
                     # Validate: Posted within time window (post-processing filter)
+                    # NOTE: LinkedIn's guest API no longer returns posting time data
+                    # If posting time is missing, we accept the job (assume recent)
                     posting_time = parse_posting_time(posted_str)
-                    if not is_posted_within_hours(posting_time, hours):
+                    if posted_str and posting_time and not is_posted_within_hours(posting_time, hours):
                         self.logger.log(5, f"LinkedIn: Filtered old - posted '{posted_str}' (threshold: {hours}h)")
                         continue
+
+                    if not posted_str:
+                        self.logger.log(5, f"LinkedIn: No posting time in HTML (LinkedIn API limitation) - accepting job")
+
                     stats["time"] += 1
 
                     jobs.append({
@@ -203,8 +209,7 @@ class LinkedInSearcher:
                 f"{stats['parsed']} parsed -> "
                 f"{stats['english']} English -> "
                 f"{stats['location']} location match -> "
-                f"{stats['time']} recent -> "
-                f"{stats['accepted']} accepted"
+                f"{stats['accepted']} accepted (time filter: SKIPPED - no API data)"
             )
 
         except Exception as e:
